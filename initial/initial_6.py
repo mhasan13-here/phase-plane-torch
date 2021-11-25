@@ -125,8 +125,8 @@ class SpikingNeuron(nn.Module):
                 self.s_t = []
         
         Iv, Iu, axon = self.fetch_current(self.v, self.u)
-        self.v = self.v + ( (Iv + input)/self.Cv ) * self.dt
-        self.u = self.u + (Iu/self.Cu) * self.dt
+        self.v = self.v + ( (Iv + input) / (self.Cv+self.Cp) ) * self.dt
+        self.u = self.u + ( Iu / (self.Cu+self.Cp) ) * self.dt
         self.spikes = axon
         # self.spikes, self.v = self.spike_activation(self.v)
         
