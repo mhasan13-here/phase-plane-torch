@@ -15,7 +15,7 @@ import time
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
-start_time = time.time()
+
 
 class SynapseMeshGrid:
     '''
@@ -158,8 +158,21 @@ class SynapseLayer(nn.Module):
         self.Tsim = Tsim
         self.record = record
         
-    
-class SpikingActivation(torch.autograd.Function):
+        
+    def fetch_synapse_current(self, vg_p, vg_n, vp_inj, vn_inj):
+        self.Isyn_active_p = self.synapse_meshgrid.Ip_active[ (self.synapse_meshgrid.i_per_vfg_syn*vg_p).long(), 
+                                                              (self.synapse_meshgrid.j_per_vd_syn*self.vn_inj).long() ]
+        self.Isyn_active_n = self.synapse_meshgrid.In_active[ (self.synapse_meshgrid.i_per_vfg_syn*vg_n).long(),
+                                                              (self.synapse_meshgrid.j_per_vd_syn*self.vp_inj).long() ]
+        self.Isyn_inactive_p = self.synapse_meshgrid.Ip_inactive[ (self.synapse_meshgrid.i_per_vfg_syn*vg_p).long(),
+                                                                  (self.synapse_meshgrid.j_per_vd_syn*self.vn_inj).long() ]
+        self.Isyn_inactive_n = self.synapse_meshgrid.In_inactive[ (self.synapse_meshgrid.i_per_vfg_syn*vg_n).long(),
+                                                                  (self.synapse_meshgrid.j_per_vd_syn*self.vp_inj).long() ]
+                    
+        
+        
+
+class InputSpikingActivation(torch.autograd.Function):
     """
     We can implement our own custom autograd Functions by subclassing
     torch.autograd.Function and implementing the forward and backward passes
@@ -167,20 +180,19 @@ class SpikingActivation(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, input):
+    def forward(ctx, v, t_period, pulse_width):
         """
         In the forward pass we receive a Tensor containing the input and return
         a Tensor containing the output. ctx is a context object that can be used
         to stash information for backward computation. You can cache arbitrary
         objects for use in the backward pass using the ctx.save_for_backward method.
         """
-        threshold = 0.3
-        spikes = torch.zeros(input.shape)
-        spikes = (input > threshold) * 1
-        input[input > threshold] = 0.
+        spikes = torch.zeros(v.shape)
+        spikes = (v > t_period) * 1
+        v[v > t_period + pulse_width] = pulse_width
         
-        ctx.save_for_backward(input, spikes)
-        return spikes, input
+        ctx.save_for_backward(spikes, v)
+        return spikes, v
 
     @staticmethod
     def backward(ctx, grad_output): ####### not implemented yet
@@ -189,9 +201,84 @@ class SpikingActivation(torch.autograd.Function):
         with respect to the output, and we need to compute the gradient of the loss
         with respect to the input.
         """
-        spikes, input = ctx.saved_tensors
+        spikes, v = ctx.saved_tensors
         
-        return input
+        return v
+    
+
+class InputGroup(nn.Module):
+    """
+    This module implements input spikes to the network
+    """
+    def __init__(self, dt=1e-6, Tsim=1e-3, record=False):
+        super(InputGroup, self).__init__()
+
+        self.spike_activation = InputSpikingActivation.apply
+        self.dt = dt
+        self.Tsim = Tsim
+        self.pulse_width = 45e-6
+        self.record = record
+        
+        # create recording variable
+        if self.record:
+            self.v_t = []
+            self.s_t = []
+
+    def forward(self, input, num_steps):
+        # See the autograd section for explanation of what happens here.
+
+        if num_steps == 0: ### this is here to initilize the variables at start
+            self.batch_size = input.size(0)
+            self.v = torch.zeros( input.size() )
+            self.spikes = torch.zeros( input.size() )
+            self.t_period = 1/(input+1e-15)
+        
+        self.v = self.v + self.dt
+        self.spikes, self.v = self.spike_activation(self.v, self.t_period, self.pulse_width)
+        
+        if self.record:
+            self.v_t.append(self.v)
+            self.s_t.append(self.spikes)
+        
+        return self.spikes, self.v
+
+    def extra_repr(self):
+        # (Optional)Set the extra information about this module. You can test
+        # it by printing an object of this class.
+        return 'Input Neuron Layer'
+
+class SpikingActivation(torch.autograd.Function):
+    """
+    We can implement our own custom autograd Functions by subclassing
+    torch.autograd.Function and implementing the forward and backward passes
+    which operate on Tensors.
+    """
+
+    @staticmethod
+    def forward(ctx, axon, v):
+        """
+        In the forward pass we receive a Tensor containing the input and return
+        a Tensor containing the output. ctx is a context object that can be used
+        to stash information for backward computation. You can cache arbitrary
+        objects for use in the backward pass using the ctx.save_for_backward method.
+        """
+        threshold = 0.100
+        spikes = torch.zeros(axon.shape)
+        spikes = (axon > threshold) * 1 #0.300
+        
+        ctx.save_for_backward(spikes, axon, v)
+        return spikes
+
+    @staticmethod
+    def backward(ctx, grad_output): ####### not implemented yet
+        """
+        In the backward pass we receive a Tensor containing the gradient of the loss
+        with respect to the output, and we need to compute the gradient of the loss
+        with respect to the input.
+        """
+        spikes, axon, v = ctx.saved_tensors
+        
+        return v
     
 
 class SpikingNeuron(nn.Module):
@@ -240,8 +327,7 @@ class SpikingNeuron(nn.Module):
           
         self.v = self.v + ( (Iv + input) / (self.Cv+self.Cp) ) * self.dt
         self.u = self.u + ( Iu / (self.Cu+self.Cp) ) * self.dt
-        self.spikes = axon
-        # self.spikes, self.v = self.spike_activation(self.v)
+        self.spikes = self.spike_activation(axon, self.v)
         
         self.rail_out(self.v, self.u)
         
@@ -295,10 +381,13 @@ class Net(nn.Module):
 
 Tsim = 10e-3
 neuron_meshgrid = NeuronMeshGrid('neuron.pickle')
-synapse_meshgrid = SynapseMeshGrid('split_files/synapse-active/synapse-active.pickle',
-                                   'split_files/synapse-inactive/synapse-inactive.pickle')
-synapse_bundle_meshgrid = BundleSynapseMeshGrid('split_files/synapse-bundle-current/synapse-bundle-current.pickle',
-                                                'split_files/synapse-bundle-injection/synapse-bundle-injection.pickle')
+
+# synapse_meshgrid = SynapseMeshGrid('synapse-active.pickle',
+#                                     'synapse-inactive.pickle')
+# synapse_bundle_meshgrid = BundleSynapseMeshGrid('synapse-bundle-current.pickle',
+#                                                 'synapse-bundle-injection.pickle')
+
+start_time = time.time()
 input = torch.tensor([[5e-12]])
 net = Net(neuron_meshgrid, dt=1e-6, Tsim=Tsim)
 v_t, s_t = net(input)
