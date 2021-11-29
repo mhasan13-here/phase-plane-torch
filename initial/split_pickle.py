@@ -91,9 +91,9 @@ def join(source_dir, dest_file, read_size):
     output_file.close()
     
     
-######## split files in 30MB chunks
-file_size = 30*1024*1024
-split('synapse-active.pickle', 'split_files/synapse-active', file_size)
-split('synapse-inactive.pickle', 'split_files/synapse-inactive', file_size)
-split('synapse-bundle-current.pickle', 'split_files/synapse-bundle-current', file_size)
-split('synapse-bundle-injection.pickle', 'split_files/synapse-bundle-incjection', file_size)
+# ######## split files in 30MB chunks
+# file_size = 30*1024*1024
+# split('synapse-active.pickle', 'split_files/synapse-active', file_size)
+# split('synapse-inactive.pickle', 'split_files/synapse-inactive', file_size)
+# split('synapse-bundle-current.pickle', 'split_files/synapse-bundle-current', file_size)
+# split('synapse-bundle-injection.pickle', 'split_files/synapse-bundle-incjection', file_size)

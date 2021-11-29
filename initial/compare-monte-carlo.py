@@ -11,12 +11,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pickle as pkl
 
-#########
-plt.rc('text', usetex=True)
-plt.rc('font', family='serif')
-plt.rc('font', size=16)
-plt.rc('lines', linewidth=1.5)
-#########
+# #########
+# plt.rc('text', usetex=True)
+# plt.rc('font', family='serif')
+# plt.rc('font', size=16)
+# plt.rc('lines', linewidth=1.5)
+# #########
 
 
 # cadence monte carlo

@@ -17,6 +17,87 @@ os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 start_time = time.time()
 
+class SynapseMeshGrid:
+    '''
+    Data on synpase meshgrid
+    '''
+    def __init__(self, active_path:str, inactive_path:str) -> None:
+        # active synapse
+        with open (active_path, 'rb') as fp:
+            itemlist = pkl.load(fp)
+        
+        data = np.array(itemlist)
+        self.vfg = data[0,:,:]
+        self.vd = data[1,:,:]
+# =============================================================================
+#         -ve sign has to be fixed for pmos currents now
+#         as cadence introduced a -ve sign for outgoing current
+# =============================================================================
+        self.Ip_active = -data[2,:,:]
+        self.In_active = data[3,:,:]
+        
+        with open (inactive_path, 'rb') as fp:
+            itemlist = pkl.load(fp)
+            
+        data = np.array(itemlist)
+        self.Ip_inactive = -data[2,:,:]
+        self.In_inactive = data[3,:,:]
+# =============================================================================
+#         i=>y axis index, j=>x axis index
+# =============================================================================        
+        self.vfg_max, self.vfg_min = np.max(self.vfg), np.min(self.vfg)
+        self.vd_max, self.vd_min = np.max(self.vd), np.min(self.vd)
+        self.i_per_vfg = (self.vfg.shape[0]-1)/(self.vfg_max-self.vfg_min)
+        self.j_per_vd = (self.vd.shape[1]-1)/(self.vd_max-self.vd_min)
+        
+class BundleSynapseMeshGrid:
+    '''
+    Data on bundle synapse injection current
+    '''
+    def __init__(self, i_bundle_path:str, i_inj_path:str) -> None:
+        with open(i_bundle_path, 'rb') as fp:
+            itemlist = pkl.load(fp)
+            
+        data = np.array(itemlist)
+        self.v_leak = data[0,:,:]
+        self.vd = data[1,:,:]
+# =============================================================================
+#         -ve sign has to be fixed for pmos currents now
+#         as cadence introduced a -ve sign for outgoing current
+# ============================================================================= 
+        self.Ip_bundle = -(data[2,:,:]+data[3,:,:])
+        self.In_bundle =   data[4,:,:]+data[5,:,:]
+# =============================================================================
+#         i=>y axis index, j=>x axis index
+# =============================================================================    
+        self.v_leak_max, self.v_leak_min = np.max(self.v_leak), np.min(self.v_leak)
+        self.vd_max, self.vd_min = np.max(self.vd), np.min(self.vd)
+        self.i_per_v_leak = (self.v_leak.shape[0]-1)/(self.v_leak_max-self.v_leak_min)
+        self.j_per_vd = (self.vd.shape[1]-1)/(self.vd_max-self.vd_min)
+        
+        with open(i_inj_path, 'rb') as fp:
+            itemlist = pkl.load(fp)
+            
+        data = np.array(itemlist)
+        self.vm = data[0,:,:]
+        self.v_inj = data[1,:,:]
+# =============================================================================
+#         -ve sign has to be fixed for pmos currents now
+#         as cadence introduced a -ve sign for outgoing current
+# ============================================================================= 
+        self.Ip_injection = -data[2,:,:]
+        self.In_injection = data[3,:,:]
+# =============================================================================
+#         i=>y axis index, j=>x axis index
+# ============================================================================= 
+        self.v_inj_max, self.v_inj_min = np.max(self.v_inj), np.min(self.v_inj)
+        self.vm_max, self.vm_min = np.max(self.vm), np.min(self.vm)
+        self.i_per_vm = (self.vm.shape[0]-1)/(self.vm_max-self.vm_min)
+        self.j_per_v_inj = (self.v_inj.shape[1]-1)/(self.v_inj_max-self.v_inj_min)   
+        
+        self.Cp = 2e-15
+        self.Cn = 2.5e-15
+
 class NeuronMeshGrid:
     """
     Data on neuron phase plane. The neuron circuit used for phase plane 
@@ -57,6 +138,26 @@ def PoissonGen(inp, rescale_fac=2.0):
     rand_inp = torch.rand_like(inp)
     return torch.mul(torch.le(rand_inp * rescale_fac, torch.abs(inp)).float(), torch.sign(inp))
 
+class SynapseLayer(nn.Module):
+    """
+    This layer implements the synapse from this paper
+    https://ieeexplore.ieee.org/document/9184611 
+    Synaptic layers in pytorch such as Linear, Conv etc. is not convenient to 
+    implenent analog synapses because they are written in C. The Linear, Conv 
+    layer is used to store the floating gate voltages. The output of the Linear,
+    Conv layer (floating gate voltage) is used here to produce synaptic output
+    current. 
+    """
+    def __init__(self, synapse_meshgrid, synapse_bundle_meshgrid, dt=1e-6, Tsim=1e-3, record=False):
+        super(SynapseLayer, self).__init__()
+        
+        self.synapse_meshgrid = synapse_meshgrid
+        self.dt = dt
+        self.Cp = synapse_bundle_meshgrid.Cp # pmos capacitance
+        self.Cn = synapse_bundle_meshgrid.Cn # nmos capacitance
+        self.Tsim = Tsim
+        self.record = record
+        
     
 class SpikingActivation(torch.autograd.Function):
     """
@@ -113,6 +214,10 @@ class SpikingNeuron(nn.Module):
         self.Tsim = Tsim
         self.record = record
         
+        # create recording variable
+        if self.record:
+            self.v_t = []
+            self.s_t = []
         
 
     def forward(self, input, num_steps):
@@ -130,9 +235,6 @@ class SpikingNeuron(nn.Module):
             self.u = torch.zeros( input.size() )
             self.spikes = torch.zeros( input.size() )
             
-            if self.record:
-                self.v_t = []
-                self.s_t = []
         
         Iv, Iu, axon = self.fetch_current(self.v, self.u)
           
@@ -193,6 +295,10 @@ class Net(nn.Module):
 
 Tsim = 10e-3
 neuron_meshgrid = NeuronMeshGrid('neuron.pickle')
+synapse_meshgrid = SynapseMeshGrid('split_files/synapse-active/synapse-active.pickle',
+                                   'split_files/synapse-inactive/synapse-inactive.pickle')
+synapse_bundle_meshgrid = BundleSynapseMeshGrid('split_files/synapse-bundle-current/synapse-bundle-current.pickle',
+                                                'split_files/synapse-bundle-injection/synapse-bundle-injection.pickle')
 input = torch.tensor([[5e-12]])
 net = Net(neuron_meshgrid, dt=1e-6, Tsim=Tsim)
 v_t, s_t = net(input)
@@ -205,24 +311,6 @@ plt.show()
 end_time = time.time()
 print(end_time-start_time)
 
-# rate = []
-# I = []
-# Tsim = 50e-3
-# for i in torch.arange(30):
-#     print('evaluating ', i)
-#     input = torch.tensor([[i*1e-12]])
-#     net = Net(neuron_meshgrid, dt=1e-6, Tsim=Tsim)
-#     v_t, s_t = net(input)
-#     v_t = [v[0,0] for v in v_t]
-#     s_t = [s[0,0] for s in s_t]
-#     s_t = torch.tensor(s_t)
-#     s = (s_t > 0.250) *1
-#     s = torch.abs(s[1:]-s[0:-1]).sum()/2
-    
-#     rate.append(s/Tsim)
-#     I.append(i)
-    
-# plt.plot(I,rate)
     
 
 
