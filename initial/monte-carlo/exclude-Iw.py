@@ -11,16 +11,16 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pickle as pkl
 
-# #########
-# plt.rc('text', usetex=True)
-# plt.rc('font', family='serif')
-# plt.rc('font', size=16)
-# plt.rc('lines', linewidth=1.5)
-# #########
+#########
+plt.rc('text', usetex=True)
+plt.rc('font', family='serif')
+plt.rc('font', size=16)
+plt.rc('lines', linewidth=1.5)
+#########
 
 
 # cadence monte carlo
-df = pd.read_csv('MonteCarlo.9.csv', header=None)
+df = pd.read_csv('MonteCarlo.Iw.csv', header=None)
 data = df[3].values
 
 # plt.subplot(1,2,1)
@@ -28,11 +28,11 @@ n, bins, patches = plt.hist(data, 10, alpha = 0.3, color='g', label='Cadence')
 plt.plot(np.diff(bins)/2 + bins[:-1], n, 'o-', color='g', label = 'Cadence')
 
 # torch monte carlo
-with open('monte-carlo-torch.pkl', 'rb') as fp:
+with open('exclude-Iw.pkl', 'rb') as fp:
     data = pkl.load(fp)
 
 # plt.subplot(1,2,2)
-n_, bins_, patches_ = plt.hist(data, 17, alpha = 0.3, color='r', label='Phase Plane')
+n_, bins_, patches_ = plt.hist(data, 10, alpha = 0.3, color='r', label='Phase Plane')
 plt.plot(np.diff(bins_)/2 + bins_[:-1], n_, '*-', color='r', label='Phase Plane')
 plt.legend()
 plt.xlabel('Spike Frequency')
