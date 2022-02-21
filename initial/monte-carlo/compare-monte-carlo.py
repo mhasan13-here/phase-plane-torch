@@ -11,12 +11,13 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pickle as pkl
 
-# #########
-# plt.rc('text', usetex=True)
-# plt.rc('font', family='serif')
-# plt.rc('font', size=16)
-# plt.rc('lines', linewidth=1.5)
-# #########
+#########
+plt.rc('text', usetex=True)
+plt.rc('font', family='Times')
+plt.rc('font', size=20, weight='bold')
+plt.rc('lines', linewidth=1.5)
+plt.rc('axes', labelweight='bold')
+#########
 
 
 # cadence monte carlo
@@ -46,4 +47,5 @@ plt.plot(np.diff(bins_)/2 + bins_[:-1], n_, '*-', color='r', label='Phase Plane'
 plt.legend()
 plt.xlabel('Spike Frequency')
 plt.ylabel('No. of Samples')
+plt.tight_layout(pad=0.5, w_pad=0, h_pad=0)
 plt.show()
